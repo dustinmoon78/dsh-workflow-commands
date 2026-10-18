@@ -37,7 +37,14 @@ Point it at a directory of markdown files and each one becomes a slash command:
 
 Templates are read **on every invocation**, so editing one takes effect immediately. Adding or removing a file requires a DSH restart, because the command registry is built in `apply()`.
 
-Template directories are resolved in order: `DSH_WORKFLOW_DIR` → `~/.dsh/commands` → `~/.zcode/commands` (first one that exists).
+Template lookup is **per file**, in this order:
+
+1. `DSH_WORKFLOW_DIR` — when set it is exclusive: no other directory is merged in, so you can isolate one template set (tests, several workflows side by side).
+2. `~/.dsh/commands`
+3. the package's own `templates/` directory — a fallback, so installing the plugin is enough to get a working set
+4. `~/.zcode/commands`
+
+The first directory containing a given file wins, so dropping `1.md` into `~/.dsh/commands` overrides the bundled copy without hiding the rest.
 
 Attachments are supported: drop images or files into the composer and they are delivered before the rendered body.
 
