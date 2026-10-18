@@ -5,10 +5,24 @@
  * 覆盖：命令注册、自动发现、@include 片段展开、运行时变量、附件、空输入、重名保护。
  */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-import { apply, inject, name, renderTemplate, buildSpecs } from './lib/index.js'
+import { homedir, tmpdir } from 'node:os'
+
+// 干净环境（CI 等）里既没有 DSH_WORKFLOW_DIR 也没有 ~/.dsh/commands，而模板目录是
+// lib/index.js 加载时定死的常量 —— 所以必须在 import 之前把目录准备好，且 import 必须
+// 是动态的：静态 import 会被提升到这段代码之前，env 就白设了。
+if (!process.env.DSH_WORKFLOW_DIR && !existsSync(join(homedir(), '.dsh', 'commands'))) {
+  const boot = mkdtempSync(join(tmpdir(), 'workflow-cmds-boot-'))
+  mkdirSync(join(boot, '_fragments'), { recursive: true })
+  writeFileSync(join(boot, '0.md'), '---\ndescription: 纯规划（自测 fixture）\nargument-hint: <任务描述>\nr-budget: 5\n---\n\n规划引擎：对任务「$ARGUMENTS」产出计划文档。\n')
+  writeFileSync(join(boot, '1.md'), '---\ndescription: 三阶段工作流（自测 fixture）\nargument-hint: <任务描述>\nr-budget: 12\n---\n\n工作流引擎：对任务「$ARGUMENTS」执行三阶段流程，日期 $DATE。\n')
+  writeFileSync(join(boot, 'hello.md'), '---\ndescription: 自动发现用（自测 fixture）\n---\n\n问候 $ARGUMENTS\n')
+  writeFileSync(join(boot, '2.md'), '---\ndescription: 三阶段工作流·小模型版（自测 fixture）\nargument-hint: <任务描述>\nr-budget: 10\n---\n\n工作流引擎：对任务「$ARGUMENTS」执行三阶段流程。\n')
+  process.env.DSH_WORKFLOW_DIR = boot
+}
+
+const { apply, inject, name, renderTemplate, buildSpecs } = await import('./lib/index.js')
 
 const definitions = []
 const delivered = []
