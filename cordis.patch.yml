@@ -1,0 +1,4 @@
+# dsh-workflow-commands bundle patch：注册 loader entry（host 半边：commands 注册）。
+- insert:
+    - id: dsh-workflow-commands
+      name: '@dsh-external/dsh-workflow-commands'

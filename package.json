@@ -1,0 +1,38 @@
+{
+  "name": "@dsh-external/dsh-workflow-commands",
+  "version": "0.1.0",
+  "description": "Bridge markdown prompt templates to DSH slash commands, with shared @include fragments and a per-step request-budget injector for request-billed agents.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dustinmoon78/dsh-workflow-commands.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "slash-commands",
+    "prompt-template",
+    "request-budget"
+  ],
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
