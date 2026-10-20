@@ -26,6 +26,7 @@ const { apply, inject, name, renderTemplate, buildSpecs } = await import('./lib/
 
 const definitions = []
 const delivered = []
+const injected = []
 
 apply({ commands: { register: (def) => definitions.push(def) } })
 
@@ -42,7 +43,10 @@ if (!w1) {
 
 const invocation = {
   rawInput: ' 给 launcher 加托盘图标',
-  agent: { followup: (m) => delivered.push(m) },
+  agent: {
+    followup: (m) => delivered.push(m),
+    inject: (m) => injected.push(m),
+  },
   attachments: [],
   signal: new AbortController().signal,
   commandId: 'selftest',
@@ -50,16 +54,40 @@ const invocation = {
 
 const okResult = w1.handler(invocation)
 console.log('\n/w1 返回     :', JSON.stringify(okResult))
+console.log('注入消息条数 :', injected.length)
 console.log('投递消息条数 :', delivered.length)
-const firstCount = delivered.length
+// 后面还会再调几次 handler（空任务/带附件/仅附件），所以这里立刻拍快照：
+// 断言要说的是「一次调用投递了什么」，不是「到断言时一共投递了什么」。
+const firstInjected = [...injected]
+const firstDelivered = [...delivered]
+const firstCount = firstDelivered.length
 
-const msg = delivered[0]
+// 两条消息，一个回合：指令走 inject（next-step），任务描述走 followup（next-turn）。
+// 内核的 claim('next-turn') 一次只取一条 next-turn，next-step 全部取走 ——
+// 两条都走 followup 的话，任务描述会被留到下一个回合才落地。
+console.log('\n--- 指令消息（inject / next-step）---')
+const workflowMsg = firstInjected[0]
+const workflowBody = workflowMsg.content.find((b) => b.type === 'text').text
+console.log('source.kind  :', workflowMsg.source.kind)
+console.log('正文前 70 字 :', workflowBody.slice(0, 70).replace(/\n/g, ' '))
+console.log('含任务描述   :', workflowBody.includes('给 launcher 加托盘图标'))
+console.log('$ARGUMENTS   :', workflowBody.includes('$ARGUMENTS') ? 'FAIL 仍残留' : '已全部替换')
+
+console.log('\n--- 任务描述消息（followup / next-turn）---')
+const msg = firstDelivered[0]
 const body = msg.content.find((b) => b.type === 'text').text
 console.log('消息 role    :', msg.role, '| source:', JSON.stringify(msg.source))
 console.log('有 id        :', typeof msg.id === 'string' && msg.id.length > 10)
-console.log('正文前 70 字 :', body.slice(0, 70).replace(/\n/g, ' '))
-console.log('任务已注入   :', body.includes('给 launcher 加托盘图标'))
-console.log('$ARGUMENTS   :', body.includes('$ARGUMENTS') ? 'FAIL 仍残留' : '已全部替换')
+console.log('正文        :', JSON.stringify(body))
+console.log('正文只有任务 :', body === '给 launcher 加托盘图标')
+
+// 会话标题只从 source.kind === 'user' 的消息取素材（dsh-session-title 的
+// sessionTitleUserMessageOf）。所以任务描述必须是 'user'，指令不能是。
+console.log('\n--- 标题素材判定 ---')
+const titleSource = firstDelivered.filter((m) => m.source.kind === 'user')
+console.log('kind=user 条数:', titleSource.length, '(须为 1，否则内核的 count===1 不成立)')
+console.log('标题取到的文本:', JSON.stringify(titleSource[0]?.content.find((b) => b.type === 'text')?.text))
+console.log('指令不是 user  :', workflowMsg.source.kind !== 'user')
 
 const empty = w1.handler({ ...invocation, rawInput: '   ' })
 console.log('\n空任务返回   :', JSON.stringify(empty))
@@ -144,10 +172,10 @@ const checks = [
   ['未注册 README', !cmdNames.includes('readme')],
   ['未注册数字开头的 0', !cmdNames.includes('0')],
   ['未占用内核名 plan', !definitions.some((d) => d.name === 'plan')],
-  ['@include 已全部展开', !body.includes('@include')],
-  ['片段参数已全部替换', !/\{\{/.test(body)],
-  ['$DATE 已注入真实日期', body.includes(today)],
-  ['$ARGUMENTS 已替换', !body.includes('$ARGUMENTS')],
+  ['@include 已全部展开', !workflowBody.includes('@include')],
+  ['片段参数已全部替换', !/\{\{/.test(workflowBody)],
+  ['$DATE 已注入真实日期', workflowBody.includes(today)],
+  ['$ARGUMENTS 已替换', !workflowBody.includes('$ARGUMENTS')],
   ['fixture: DSH_WORKFLOW_DIR 生效', !!fx && fx.specs.join(',') === 'broken,hello,uses-frag,w0,w1,w2,post,oddba'],
   ['fixture: 自动发现跳过嵌套目录', !!fx && !fx.specs.includes('deep')],
   ['fixture: 变量注入正确', !!fx && !fx.hello.error && fx.hello.text.includes(today) && fx.hello.text.includes('做点事')],
@@ -155,11 +183,15 @@ const checks = [
   ['fixture: 缺片段返回 error', !!fx && !!fx.broken.error && fx.broken.error.includes('不存在的片段')],
   ['renderTemplate 对缺模板报错', renderTemplate('nope.md', invocation).error?.includes('读不到模板') === true],
   ['命令声明了 attachments', declared],
-  ['首次调用投递 1 条消息', firstCount === 1],
-  ['消息是 user 角色', msg.role === 'user' && msg.source.kind === 'user'],
-  ['任务描述已注入', body.includes('给 launcher 加托盘图标')],
-  ['占位符已替换', !body.includes('$ARGUMENTS')],
-  ['frontmatter 已剥离', !body.startsWith('---')],
+  ['首次调用投递 1 条任务消息', firstCount === 1],
+  ['首次调用注入 1 条指令消息', firstInjected.length === 1],
+  ['任务消息是 user 角色', msg.role === 'user' && msg.source.kind === 'user'],
+  ['指令消息不是 user 角色', workflowMsg.role === 'user' && workflowMsg.source.kind !== 'user'],
+  ['任务消息正文只有任务描述', body === '给 launcher 加托盘图标'],
+  ['指令消息含任务描述', workflowBody.includes('给 launcher 加托盘图标')],
+  ['指令消息占位符已替换', !workflowBody.includes('$ARGUMENTS')],
+  ['指令消息已剥 frontmatter', !workflowBody.startsWith('---')],
+  ['标题素材唯一', firstDelivered.filter((m) => m.source.kind === 'user').length === 1],
   ['空任务报错', empty.kind === 'error'],
   ['附件进消息且排在正文前', attachedMsg.content[0] === fakeImage],
   ['仅附件放行', attachOnly.kind === 'success'],
